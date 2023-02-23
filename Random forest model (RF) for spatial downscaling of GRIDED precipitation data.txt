@@ -1,0 +1,107 @@
+
+###Load all these liberaries, may of some of them are not required.
+## Required packages for RF model
+library(caret)
+library(e1071)
+library(readxl)
+library(writexl)
+library(ggplot2)
+library(randomForest)
+library(hydroGOF)
+library(sf)
+library(raster)
+#Load required packages for interpolation
+library(sf)
+library(stars)
+library(gstat)
+library(automap)
+library(raster)
+library(dplyr)
+library(sp)
+library(gstat)
+library(raster)
+library(rgdal)
+library(leaflet)
+
+####To perform the spatial downscaling, we need two datasets as input (1) coarse resolution data Lets Say TRMM (0.25 degree) and explantory variables (NDVI, ET, Elevation etc... at 0.25 degree) 
+and (2) high resolution explantory variables (NDVI, ET, Elevation etc... at 1km*1km) depending on the target resolution of downscaled data
+
+#Let's attach coarse resolution data and called as training data: Note you have to creat geolocations (Lat, Long) of TRMM raser grids and extract values of explantory variables and TRMM precipition
+data_coarse <- read_csv("E:/Downscaling/trmm_explanatorydata.csv")
+
+#Lets attach fine resolution (e.g., 1km) data of explantory variables and called as testing data: Note you have to creat geelocations (Lat, Long) of explantory variables at 1km and extract all variavles
+values over geolocations. Keep in mind here we dont need TRMM data
+
+data_fine <- read_csv("E:/Downscaling/Explantory_var_0.01.txt")
+
+
+# Lets convert train and test data into data frame of Rstudio
+Data_1 = as.data.frame(data_coarse)
+Data_2 = as.data.frame(data_fine)
+
+# extract variables to train the model for year 2002 as an example 
+train.df <- Data_1 %>% 
+  dplyr::select(TRMM_2002, Cloud_2002, Precp_2002, LST_2002, NDVI_2002, CWS_2002,  SM_2002, Wind_2002, ET_2002)
+
+#generate test data at corse resolution 
+test.df_1 <- train.df [,2:9]  # we have subtract the dependent column
+
+#generate test data at fine resolution
+test_df_2 <- Data_2 %>% 
+  dplyr::select(Cloud_2002, Precp_2002, LST_2002, NDVI_2002, CWS_2002,  SMS_2002, Wind_2002, ET_2002) 
+
+####Lets train the RF model
+#RF model
+set.seed(1234)
+
+## Random forest model using optimal parameterization of nodesize, mtry, ntrees
+RF<- randomForest(TRMM_2002~.,data=train.df,
+                  tuneGrid = tuneGrid,
+                  trControl = trControl,
+                  nodesize = 14,
+                  mtry =2,
+                  ntree = 350,
+                  maxnodes = 32,
+                  importance = TRUE,
+                  proximity = TRUE)
+plot(RF)
+###Lets plot variables importance
+varImpPlot(RF)
+##Lets use above developed model to make prediction of precipitaion at 0.25 degree using coarse resolution explanatory variables
+RF_predicted_precip_2002<- predict(RF,newdata=test.df_1)
+##plot actual and predicted data
+plot(train.df$TRMM_2002,RF_predicted_precip_2002)
+## check statistical indices
+gof(RF_predicted_precip_2002,train.df$TRMM_2002)
+
+#Export output of RF in excel: Note this output would be corresponding to the geoloctions of TRMM (0.25 degree)
+FIPS.xy<-Data_1 [,2:3]    ####these columns are geolocations (lon x, lat y)
+FIPS.xy$TRMM_2002 <- train.df$TRMM_2002
+FIPS.xy$RF_predicted_precip_2002<-RF_predicted_precip_2002
+####save the output in excel for more statistical evaluations between TRMM versed RF based predicted precip
+write.xlsx(FIPS.xy, file="E:/Downscaling/RF_PRECIP.xls", sheetName="Year2002", append=TRUE, row.names=FALSE)
+
+
+###Lets use above developed model to make prediction of precipitation at 1km using fine resolution (e.g., 1km) data of explantory variables
+RF_predicted_precip_2002<- predict(RF,newdata=test_df_2)
+
+#Export output in rasterize form:  Note this output would be corresponding to the geoloctions of explanatory variables at 1km
+FIPS.xy<- Data_2 %>% 
+  select(X_coord, Y_coord)
+FIPS.xy$ RF_predicted_precip_2002 <-RF_predicted_precip_2002
+
+#Define coordinates
+coordinates(FIPS.xy) = ~X_coord+Y_coord
+proj4string(FIPS.xy) <- CRS("+proj=longlat +datum=WGS84")
+gridded(FIPS.xy) <- TRUE
+
+# rasterrize point into grid (1km). Note since geolocations of fine resolution data of explantory variables were at 1km therefore rasterize will generate prediction of downscaled precipitation at 1km
+raster_out <- raster(FIPS.xy)
+
+#save raster output
+writeRaster(raster_out,'/GIS (E)/Downscaling/RF_precip_2002.tif')
+
+You can run the code for year 2003 by just replacing the year 2003 with 2003. You have to named the variables in a way that you can just replace the 2002 with 2003 and run the whole code.
+
+
+
