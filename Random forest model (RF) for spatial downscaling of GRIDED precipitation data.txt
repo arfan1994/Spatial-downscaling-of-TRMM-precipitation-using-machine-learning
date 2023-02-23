@@ -1,5 +1,5 @@
 
-###Load all these liberaries, may of some of them are not required.
+###Load all these liberaries
 ## Required packages for RF model
 library(caret)
 library(e1071)
